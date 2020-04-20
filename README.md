@@ -1,7 +1,7 @@
 # IGScraper
 A simple Selenium based IG Scraper
 
-*work in progress*
+*work in progress* - use at your own peril
 
 Requires
 1. Python 3.x
