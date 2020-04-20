@@ -1,6 +1,8 @@
 # IGScraper
 A simple Selenium based IG Scraper
 
+*work in progress*
+
 Requires
 1. Python 3.x
 2. Selenium
