@@ -1,4 +1,4 @@
-import time, re, time, urllib, json
+import pandas as pd, numpy as np, json, time, urllib, json, os, codecs, re
 from bs4 import BeautifulSoup as BS
 from itertools import chain
 from selenium import webdriver
@@ -32,14 +32,10 @@ class ig_scraper(object):
             self.driver.quit()
         except:
             pass
-        try:
-            self.reset_links()
-        except:
-            pass
     def log_in(self):
         self.get_page('https://www.instagram.com/accounts/login')
         time.sleep(2)
-        bs = BS(ig.driver.page_source)
+        bs = BS(self.driver.page_source)
         cl = bs.find_all('input', {'name':'username'})[0].get('class')
         self.driver.find_elements_by_class_name(cl[0])[0].clear()
         self.driver.find_elements_by_class_name(cl[0])[0].send_keys(self.un)
@@ -86,28 +82,74 @@ class ig_scraper(object):
         hrefs = self.bs.find_all('a')
         piclinks_profile = [h.get('href') for h in hrefs if '/p/' in h.get('href')]
         return piclinks_profile
-    def get_photos(self, fpath = '../Data/'):
+    def get_photos(self, fpath = '../Data/', metadata = True):
         iters = 0
         maxiters = 11
-        while iters<maxiters:
-            bs = BS(self.driver.page_source)
-            st = [l for l in bs.find_all('img', {'class':'FFVAD'})][0]
-            st = str(st)
-            imglinks = [[l for l in s.split() if 'https://' in l] for s in st.split(',')]
-            imglinks = list(chain(*imglinks))
-            piclink = imglinks[-1]
-            piclink = piclink.replace('&amp;', '&')
+        piclink = ''
+        if metadata:
             try:
-                fname = re.findall('/[^?^/]+jpg',piclink)[0].replace('/', '')
+                url = self.driver.current_url
+                fname = re.findall('/p/([^/]+)',url)[0]
+                j = self.get_meta_data(fname,fpath=fpath+'metadata/')
+                
+                short = j.get('entry_data').get('PostPage')[0].get('graphql').get('shortcode_media')
+                # If multiple images in post
+                if 'sidecar' in short.get('__typename').lower():
+                    for sht in short.get('edge_sidecar_to_children').get('edges'):
+                        node = sht.get('node')
+                        if 'video' in node.get('__typename').lower():
+                            piclink = node.get('video_url')
+                            piclink = piclink.replace('&amp;', '&')
+                            pname = re.findall('/[^?^/]+mp4',piclink)[0].replace('/', '')
+                        else:
+                            piclink = node.get('display_url')
+                            piclink = piclink.replace('&amp;', '&')
+                            pname = re.findall('/[^?^/]+jpg',piclink)[0].replace('/', '')
+                        urllib.request.urlretrieve(piclink, '{}{}'.format(fpath,pname))
+                        
+                else:
+                    if 'video' in short.get('__typename').lower():
+                        piclink = short.get('video_url')
+                        piclink = piclink.replace('&amp;', '&')
+                        pname = re.findall('/[^?^/]+mp4',piclink)[0].replace('/', '')
+                    else:
+                        piclink = short.get('display_url')
+                        piclink = piclink.replace('&amp;', '&')
+                        pname = re.findall('/[^?^/]+jpg',piclink)[0].replace('/', '')
+                    urllib.request.urlretrieve(piclink, '{}{}'.format(fpath,pname))
+                metadatafail = False
             except:
-                fname = re.findall('/[^?^/]+mp4',piclink)[0].replace('/', '')
-            urllib.request.urlretrieve(piclink, '{}{}'.format(fpath,fname))
-            try:
-                self.driver.find_element_by_class_name('coreSpriteRightChevron').click()
-            except:
-                break
-            time.sleep(2)
-            iters +=1
+                metadatafail = True
+                pass
+        else:
+            metadatafail = True
+        if (metadata is False)|metadatafail:
+            while iters<maxiters:
+                fname = None
+                bs = BS(self.driver.page_source)
+                try:
+                    st = [l for l in bs.find_all('video', {'class':'tWeCl'})][0]
+                    piclink = st.get('src').replace('&amp;', '&')
+                except:
+                    st = [l for l in bs.find_all('img', {'class':'FFVAD'})][0]
+                    st = str(st)
+                    imglinks = [[l for l in s.split() if 'https://' in l] for s in st.split(',')]
+                    imglinks = list(chain(*imglinks))
+                    piclink = imglinks[-1]
+                    piclink = piclink.replace('&amp;', '&')
+                
+                try:
+                    fname = re.findall('/[^?^/]+jpg',piclink)[0].replace('/', '')
+                except:
+                    fname = re.findall('/[^?^/]+mp4',piclink)[0].replace('/', '')
+                urllib.request.urlretrieve(piclink, '{}{}'.format(fpath,fname))
+                try:
+                    self.driver.find_element_by_class_name('coreSpriteRightChevron').click()
+                except:
+                    break
+                
+                time.sleep(2)
+                iters +=1
 
     def get_all_photos(self, sleep = 2, fpath = '../Data/'):
         for l in self.piclinks_profile:
@@ -117,4 +159,29 @@ class ig_scraper(object):
                 self.get_photos(fpath=fpath)
             except:
                 pass
+
+    def get_meta_data(self, fname,fpath = '../Data/'):
+        """
+        In progress
+        Parse JSON data from post page
+
+        """
+        try:
+            os.listdir(fpath)
+        except:
+            os.mkdir(fpath)
+
+        sc = self.driver.page_source
+        try:
+            j = [s for s in BS(sc).find_all('script') if 'platform' in str(s)][0].text
+            j = json.loads(re.findall('\{.*\}', j)[0])
+        except:
+            scr = re.findall('window._sharedData = (\{"config":\{"csrf_token":.*\})', sc)[0]
+            j = json.loads(re.findall('\{.*\}', scr)[0])
+            # j = json.loads(scr[:scr.find('<')-1])
+
+        with codecs.open(fpath+fname+'.json', 'w', encoding = 'utf-8') as f:
+            f.write(json.dumps(j))
+        return j
+# C:\Users\yangy\Dropbox\Photos\misc\igscraper
 
