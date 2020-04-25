@@ -63,7 +63,14 @@ class ig_scraper(object):
         maxiters = maxiters
         sc,bs = self.get_pagesource()
         self.piclinks_profile = self.piclinks_profile.union(set(self.get_piclinks_profile()))
-        while match==False:            
+        while match==False:
+            bs = BS(self.driver.page_source)
+            try:
+                b = [b for b in bs.find_all('button') if 'show more posts from' in b.text.lower()][0]
+                cl = b.get('class')[0]
+                self.driver.find_element_by_class_name(cl).click()
+            except:
+                pass
             lastCount = lenOfPage
             time.sleep(sleep)
             lenOfPage = self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);var lenOfPage=document.body.scrollHeight;return lenOfPage;")
